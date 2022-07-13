@@ -7,21 +7,18 @@
 package redis
 
 import (
-	"context"
-	"crypto/tls"
+	//"crypto/tls"
 	"fmt"
 	goredis "github.com/go-redis/redis/v8"
-	//"strconv"
-	//"sync"
+	"strconv"
+	"sync"
 	"testing"
 	"time"
 )
 
-func TestGoRedisCluster(t *testing.T) {
-	var ctx = context.Background()
-
-	rdb := goredis.NewClusterClient(&goredis.ClusterOptions{
-		Addrs:    []string{"localhost:6380"},
+func newRedis() (*redisCluster, error) {
+	rdb, err := NewClusterClient(&goredis.ClusterOptions{
+		Addrs:    []string{"172.17.0.1:8001"},
 		Password: "",
 		//连接池容量及闲置连接数量
 		PoolSize:     10, // 连接池最大socket连接数，默认为4倍CPU数， 4 * runtime.NumCPU
@@ -43,9 +40,9 @@ func TestGoRedisCluster(t *testing.T) {
 		MinRetryBackoff: 8 * time.Millisecond,   //每次计算重试间隔时间的下限，默认8毫秒，-1表示取消间隔
 		MaxRetryBackoff: 512 * time.Millisecond, //每次计算重试间隔时间的上限，默认512毫秒，-1表示取消间隔
 
-		TLSConfig: &tls.Config{
+		/*TLSConfig: &tls.Config{
 			InsecureSkipVerify: true,
-		},
+		},*/
 
 		// ReadOnly = true，只择 Slave Node
 		// ReadOnly = true 且 RouteByLatency = true 将从 slot 对应的 Master Node 和 Slave Node， 择策略为: 选择PING延迟最低的点
@@ -55,17 +52,19 @@ func TestGoRedisCluster(t *testing.T) {
 		RouteRandomly:  true,
 		RouteByLatency: true,
 	})
+
+    return rdb, err
+}
+
+func TestRedisCluster(t *testing.T) {
+    rdb, _ := newRedis()
 	defer rdb.Close()
 
-	rdb.Set(ctx, "test-0", "value-0", 100 * time.Second)
-	rdb.Set(ctx, "test-1", "value-1", 100 * time.Second)
-	rdb.Set(ctx, "test-2", "value-2", 100 * time.Second)
+	rdb.Set(ctx, "test-0", "value-0", 100*time.Second)
+	rdb.Set(ctx, "test-1", "value-1", 100*time.Second)
+	rdb.Set(ctx, "test-2", "value-2", 100*time.Second)
 
-    val, err := rdb.Get(ctx, "test-0").Result()
-    fmt.Printf("val: %#v, %#v\n", val, err)
-
-    /*
-	AllMaxRun := 6
+	AllMaxRun := MAX_COUCUR
 	wg := sync.WaitGroup{}
 	wg.Add(AllMaxRun)
 
@@ -88,9 +87,40 @@ func TestGoRedisCluster(t *testing.T) {
 		}(&wg, i)
 	}
 
-	wg.Wait()*/
+	wg.Wait()
 
 	stats := rdb.PoolStats()
 	fmt.Printf("Hits=%d Misses=%d Timeouts=%d TotalConns=%d IdleConns=%d StaleConns=%d\n",
 		stats.Hits, stats.Misses, stats.Timeouts, stats.TotalConns, stats.IdleConns, stats.StaleConns)
+}
+
+func TestParseRedis(t *testing.T) {
+    rdb, err := newRedis()
+    if err != nil {
+        fmt.Printf("new error: %s\n", err.Error())
+        return
+    }
+
+    fmt.Printf("cluster info: %#v\n", rdb.clusterInfo)
+
+    for i:=0; i<10; i++ {
+        rdb.Set(ctx, fmt.Sprintf("t%d", i), fmt.Sprintf("abc%d", i), 30 * time.Second)
+    }
+
+    mutlKey := []string{}
+    for i:=0; i<10; i++ {
+        res, err := rdb.Get(ctx, fmt.Sprintf("t%d", i)).Result()
+        fmt.Printf("Get res: %#v, %#v\n", res, err)
+
+        oKey := fmt.Sprintf("t%d", i+5)
+        mutlKey = append(mutlKey, oKey)
+        res1, err := rdb.Exists(ctx, oKey).Result()
+        fmt.Printf("Is %s exists: %#v, %#v\n", oKey, res1, err)
+    }
+
+    res, err := rdb.Exists(ctx, mutlKey...).Result()
+    fmt.Printf("Is exists: %#v, %#v\n", res, err)
+
+    //curName, err := rdb.ClusterNodes(ctx).Result()
+    //fmt.Printf("Current client name: %#v, %#v\n", curName, err)
 }
