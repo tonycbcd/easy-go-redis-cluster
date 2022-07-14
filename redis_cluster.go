@@ -104,6 +104,14 @@ func (this *RedisCluster) getHitGroupInMap(key string, hitMap map[string]*hitKey
 	return hitGroup, nil
 }
 
+func (this *RedisCluster) strArr2InfArr(keys []string) []interface{} {
+	infArr := []interface{}{}
+	for _, one := range keys {
+		infArr = append(infArr, one)
+	}
+	return infArr
+}
+
 // Refactor the Set method.
 func (this *RedisCluster) Set(ctx context.Context, key string, value interface{}, expiration time.Duration) *goredis.StatusCmd {
 	getError := func(err error) *goredis.StatusCmd {
@@ -124,14 +132,6 @@ func (this *RedisCluster) Set(ctx context.Context, key string, value interface{}
 	}
 
 	return curClient.Set(ctx, hitGroup.master.RebuildKey(key), value, expiration)
-}
-
-func (this *RedisCluster) strArr2InfArr(keys []string) []interface{} {
-	infArr := []interface{}{}
-	for _, one := range keys {
-		infArr = append(infArr, one)
-	}
-	return infArr
 }
 
 // Refactor the Get method.

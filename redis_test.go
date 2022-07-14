@@ -10,6 +10,7 @@ import (
 	//"crypto/tls"
 	"fmt"
 	goredis "github.com/go-redis/redis/v8"
+	"github.com/stretchr/testify/assert"
 	"strconv"
 	"sync"
 	"testing"
@@ -94,33 +95,30 @@ func TestRedisCluster(t *testing.T) {
 		stats.Hits, stats.Misses, stats.Timeouts, stats.TotalConns, stats.IdleConns, stats.StaleConns)
 }
 
-func TestParseRedis(t *testing.T) {
+func TestSetAndGet(t *testing.T) {
 	rdb, err := newRedis()
 	if err != nil {
 		fmt.Printf("new error: %s\n", err.Error())
 		return
 	}
 
-	fmt.Printf("cluster master: %#v\n", rdb.nodes.groupMap["155738c392dfbb522ab1472c719a57f66ab5bf20"].master)
-
+	testCases := [10][2]string{}
 	for i := 0; i < 10; i++ {
-		rdb.Set(ctx, fmt.Sprintf("t%d", i), fmt.Sprintf("abc%d", i), 3600*time.Second)
+		testCases[i] = [2]string{fmt.Sprintf("t%d", i), fmt.Sprintf("abc%d", i)}
+		rdb.Set(ctx, testCases[i][0], testCases[i][1], 3600*time.Second)
 	}
 
+	assert := assert.New(t)
 	mutlKey := []string{}
-	for i := 0; i < 10; i++ {
-		res, err := rdb.Get(ctx, fmt.Sprintf("t%d", i)).Result()
+	for i, one := range testCases {
+		res, err := rdb.Get(ctx, one[0]).Result()
 		fmt.Printf("Get res: %#v, %#v\n", res, err)
+		assert.Equal(res, one[1], "test failed.")
 
-		oKey := fmt.Sprintf("t%d", i+5)
-		mutlKey = append(mutlKey, oKey)
-		res1, err := rdb.Exists(ctx, oKey).Result()
-		fmt.Printf("Is %s exists: %#v, %#v\n", oKey, res1, err)
+		mutlKey = append(mutlKey, fmt.Sprintf("t%d", i+5))
 	}
 
 	res, err := rdb.Exists(ctx, mutlKey...).Result()
 	fmt.Printf("Is exists: %#v, %#v\n", res, err)
-
-	//curName, err := rdb.ClusterNodes(ctx).Result()
-	//fmt.Printf("Current client name: %#v, %#v\n", curName, err)
+	assert.Equal(res, int64(5), "test failed.")
 }
