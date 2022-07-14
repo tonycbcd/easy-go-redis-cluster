@@ -7,12 +7,12 @@
 package redis
 
 import (
-	"log"
-	"time"
-	//"sync"
 	"context"
 	"errors"
 	goredis "github.com/go-redis/redis/v8"
+	"log"
+	"sync"
+	"time"
 )
 
 var (
@@ -168,19 +168,51 @@ func (this *RedisCluster) Exists(ctx context.Context, keys ...string) *goredis.I
 	redisFactory := NewRedisClientFactory(this.Options())
 
 	keyInfs := this.strArr2InfArr(keys)
-	result := goredis.NewIntCmd(ctx, keyInfs...)
+	mapLen := len(keyNodesMap)
 
-	var totalVal int64 = 0
+	wg := sync.WaitGroup{}
+	wg.Add(mapLen)
+
+	type curResultModel struct {
+		Err error
+		Val int64
+	}
+	var resCh chan *curResultModel = make(chan *curResultModel, mapLen)
+
 	for _, node := range keyNodesMap {
-		curClient, _ := redisFactory.GetRedisClient(node.HitNodeGP, true)
-		subRes := curClient.Exists(ctx, node.Keys...)
-		if curVal, err := subRes.Result(); err != nil {
-			result.SetErr(err)
+		go func(wg *sync.WaitGroup, resCh chan *curResultModel, curNode *hitKeysItem) {
+			defer wg.Done()
+
+			curRes := &curResultModel{}
+			curClient, err := redisFactory.GetRedisClient(curNode.HitNodeGP, true)
+			if err != nil {
+				curRes.Err = err
+				resCh <- curRes
+				return
+			}
+
+			subRes := curClient.Exists(ctx, curNode.Keys...)
+			curVal, err := subRes.Result()
+			curRes.Err = err
+			curRes.Val = curVal
+			resCh <- curRes
+		}(&wg, resCh, node)
+	}
+
+	wg.Wait()
+
+	result := goredis.NewIntCmd(ctx, keyInfs...)
+	var totalVal int64 = 0
+
+	for i := 0; i < mapLen; i++ {
+		if curRes := <-resCh; curRes.Err != nil {
+			result.SetErr(curRes.Err)
 			return result
 		} else {
-			totalVal += curVal
+			totalVal += curRes.Val
 		}
 	}
+
 	result.SetVal(totalVal)
 
 	return result
