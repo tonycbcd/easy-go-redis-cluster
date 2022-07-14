@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-func newRedis() (*redisCluster, error) {
+func newRedis() (*RedisCluster, error) {
 	rdb, err := NewClusterClient(&goredis.ClusterOptions{
 		Addrs:    []string{"172.17.0.1:8001"},
 		Password: "",
@@ -53,11 +53,11 @@ func newRedis() (*redisCluster, error) {
 		RouteByLatency: true,
 	})
 
-    return rdb, err
+	return rdb, err
 }
 
 func TestRedisCluster(t *testing.T) {
-    rdb, _ := newRedis()
+	rdb, _ := newRedis()
 	defer rdb.Close()
 
 	rdb.Set(ctx, "test-0", "value-0", 100*time.Second)
@@ -95,32 +95,32 @@ func TestRedisCluster(t *testing.T) {
 }
 
 func TestParseRedis(t *testing.T) {
-    rdb, err := newRedis()
-    if err != nil {
-        fmt.Printf("new error: %s\n", err.Error())
-        return
-    }
+	rdb, err := newRedis()
+	if err != nil {
+		fmt.Printf("new error: %s\n", err.Error())
+		return
+	}
 
-    fmt.Printf("cluster info: %#v\n", rdb.clusterInfo)
+	fmt.Printf("cluster master: %#v\n", rdb.nodes.groupMap["155738c392dfbb522ab1472c719a57f66ab5bf20"].master)
 
-    for i:=0; i<10; i++ {
-        rdb.Set(ctx, fmt.Sprintf("t%d", i), fmt.Sprintf("abc%d", i), 30 * time.Second)
-    }
+	for i := 0; i < 10; i++ {
+		rdb.Set(ctx, fmt.Sprintf("t%d", i), fmt.Sprintf("abc%d", i), 3600*time.Second)
+	}
 
-    mutlKey := []string{}
-    for i:=0; i<10; i++ {
-        res, err := rdb.Get(ctx, fmt.Sprintf("t%d", i)).Result()
-        fmt.Printf("Get res: %#v, %#v\n", res, err)
+	mutlKey := []string{}
+	for i := 0; i < 10; i++ {
+		res, err := rdb.Get(ctx, fmt.Sprintf("t%d", i)).Result()
+		fmt.Printf("Get res: %#v, %#v\n", res, err)
 
-        oKey := fmt.Sprintf("t%d", i+5)
-        mutlKey = append(mutlKey, oKey)
-        res1, err := rdb.Exists(ctx, oKey).Result()
-        fmt.Printf("Is %s exists: %#v, %#v\n", oKey, res1, err)
-    }
+		oKey := fmt.Sprintf("t%d", i+5)
+		mutlKey = append(mutlKey, oKey)
+		res1, err := rdb.Exists(ctx, oKey).Result()
+		fmt.Printf("Is %s exists: %#v, %#v\n", oKey, res1, err)
+	}
 
-    res, err := rdb.Exists(ctx, mutlKey...).Result()
-    fmt.Printf("Is exists: %#v, %#v\n", res, err)
+	res, err := rdb.Exists(ctx, mutlKey...).Result()
+	fmt.Printf("Is exists: %#v, %#v\n", res, err)
 
-    //curName, err := rdb.ClusterNodes(ctx).Result()
-    //fmt.Printf("Current client name: %#v, %#v\n", curName, err)
+	//curName, err := rdb.ClusterNodes(ctx).Result()
+	//fmt.Printf("Current client name: %#v, %#v\n", curName, err)
 }

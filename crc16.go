@@ -2,27 +2,22 @@
 // Editor FrankXu <frankxury@gmail.com>
 // Build on 2022/07/11
 
-/* CRC16 implementation according to CCITT standards.
- *
- * Note by @antirez: this is actually the XMODEM CRC 16 algorithm, using the
- * following parameters:
- *
- * Name                       : "XMODEM", also known as "ZMODEM", "CRC-16/ACORN"
- * Width                      : 16 bit
- * Poly                       : 1021 (That is actually x^16 + x^12 + x^5 + 1)
- * Initialization             : 0000
- * Reflect Input byte         : False
- * Reflect Output CRC         : False
- * Xor constant to output CRC : 0000
- * Output for "123456789"     : 31C3
- */
+// CRC16 implementation according to CCITT standards.
 
 package redis
+
+import (
+	"fmt"
+)
 
 const (
 	kClusterSlots = 16384
 )
 
+// CRC16 implementation according to CCITT standards.
+// Copyright 2001-2010 Georges Menie (www.menie.org)
+// Copyright 2013 The Go Authors. All rights reserved.
+// http://redis.io/topics/cluster-spec#appendix-a-crc16-reference-implementation-in-ansi-c
 var crc16tab = [256]uint16{
 	0x0000, 0x1021, 0x2042, 0x3063, 0x4084, 0x50a5, 0x60c6, 0x70e7,
 	0x8108, 0x9129, 0xa14a, 0xb16b, 0xc18c, 0xd1ad, 0xe1ce, 0xf1ef,
@@ -63,17 +58,20 @@ type CRC16 struct {
 
 var (
 	oneCRC16 *CRC16
+
+	chars = [52]int{}
 )
 
 func NewCRC16() *CRC16 {
 	if oneCRC16 == nil {
 		oneCRC16 = &CRC16{}
+		oneCRC16.initChars()
 	}
 
 	return oneCRC16
 }
 
-func (this *CRC16) Encode(buf string) uint16 {
+func (this *CRC16) encode(buf string) uint16 {
 	var crc uint16
 	for _, n := range buf {
 		crc = (crc << uint16(8)) ^ crc16tab[((crc>>uint16(8))^uint16(n))&0x00FF]
@@ -81,7 +79,17 @@ func (this *CRC16) Encode(buf string) uint16 {
 	return crc
 }
 
-func (this *CRC16) HashSlot(key string) uint16 {
+func (this *CRC16) initChars() {
+	for i := 65; i <= 90; i++ {
+		chars[i-65] = i
+	}
+
+	for i := 97; i <= 122; i++ {
+		chars[i-71] = i
+	}
+}
+
+func (this *CRC16) HashSlotCore(key string, maxNum uint16) uint16 {
 	var s, e int
 	for s = 0; s < len(key); s++ {
 		if key[s] == '{' {
@@ -90,7 +98,7 @@ func (this *CRC16) HashSlot(key string) uint16 {
 	}
 
 	if s == len(key) {
-		return this.Encode(key) & (kClusterSlots - 1)
+		return this.encode(key) & (maxNum - 1)
 	}
 
 	for e = s + 1; e < len(key); e++ {
@@ -100,8 +108,46 @@ func (this *CRC16) HashSlot(key string) uint16 {
 	}
 
 	if e == len(key) || e == s+1 {
-		return this.Encode(key) & (kClusterSlots - 1)
+		return this.encode(key) & (maxNum - 1)
 	}
 
-	return this.Encode(key[s+1:e]) & (kClusterSlots - 1)
+	return this.encode(key[s+1:e]) & (maxNum - 1)
+}
+
+func (this *CRC16) HashSlot(key string) uint16 {
+	return this.HashSlotCore(key, kClusterSlots)
+}
+
+func (this *CRC16) GetHashBySlotArea(mainWords string, minSlot, maxSlot uint16) string {
+	hash := ""
+
+	charsLen := len(chars)
+	isFound := false
+
+	tried := 0
+	keepStr := ""
+
+	for true {
+		tried += 1
+		for i := 0; i < charsLen; i += tried {
+			hash = fmt.Sprintf("%s%s%c", mainWords, keepStr, chars[i])
+
+			curSlot := this.HashSlot(hash)
+			if curSlot >= minSlot && curSlot <= maxSlot {
+				isFound = true
+				break
+			}
+		}
+
+		if isFound {
+			break
+		}
+
+		keepStr = fmt.Sprintf("%c", chars[tried-1])
+		if tried >= charsLen {
+			break
+		}
+	}
+
+	return hash
 }
