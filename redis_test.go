@@ -168,3 +168,30 @@ func TestMSetAndMGet(t *testing.T) {
 	assert.Equal(err, nil, "test err failed.")
 	assert.Equal(d, data{"val-0", "val-1", "val-2", "val-3", "val-4", "val-5", "val-6", "val-7", "val-8", "val-9"}, "test data failed.")
 }
+
+func TestDel(t *testing.T) {
+	rdb, err := newRedis()
+	if err != nil {
+		fmt.Printf("new error: %s\n", err.Error())
+		return
+	}
+
+	rdb.Set(ctx, "test-0", "value-0", 100*time.Second)
+	rdb.Set(ctx, "test-1", "value-1", 100*time.Second)
+	rdb.Set(ctx, "test-2", "value-2", 100*time.Second)
+
+	keys := []string{"test-0", "test-1", "test-2"}
+
+	res := rdb.Exists(ctx, keys...)
+	fmt.Printf("RES: %#v\n", res)
+
+	assert := assert.New(t)
+	assert.Equal(res.Val() == 3, true, "test save failed")
+
+	res = rdb.Del(ctx, keys...)
+	fmt.Printf("Del Res: %#v\n", res)
+	assert.Equal(res.Val() == 3, true, "test delete failed")
+
+	res = rdb.Exists(ctx, keys...)
+	assert.Equal(res.Val() == 0, true, "test delete failed")
+}

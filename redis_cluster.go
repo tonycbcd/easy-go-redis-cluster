@@ -158,8 +158,56 @@ func (this *RedisCluster) Get(ctx context.Context, key string) *goredis.StringCm
 
 // Refactor the Del method.
 func (this *RedisCluster) Del(ctx context.Context, keys ...string) *goredis.IntCmd {
-	// TODO
-	return this.ClusterClient.Del(ctx, keys...)
+	keyInfs := append([]interface{}{"del"}, this.strArr2InfArr(keys)...)
+	getError := func(err error) *goredis.IntCmd {
+		iCmd := goredis.NewIntCmd(ctx, keyInfs...)
+		iCmd.SetErr(err)
+		return iCmd
+	}
+
+	// init the params.
+	keyNodesMap := this.getKeyNodesMap(keys)
+	mapLen := len(keyNodesMap)
+	redisFactory := NewRedisClientFactory(this.Options())
+
+	var resCh chan *goredis.IntCmd = make(chan *goredis.IntCmd, mapLen)
+
+	wg := sync.WaitGroup{}
+	wg.Add(mapLen)
+
+	// To del by group.
+	for _, node := range keyNodesMap {
+		go func(wg *sync.WaitGroup, resCh chan *goredis.IntCmd, curNode *hitKeysItem) {
+			defer wg.Done()
+			curClient, err := redisFactory.GetRedisClient(curNode.HitNodeGP, true)
+			if err != nil {
+				resCh <- getError(err)
+				return
+			}
+
+			resCh <- curClient.Del(ctx, curNode.Keys...)
+		}(&wg, resCh, node)
+	}
+
+	wg.Wait()
+
+	result := goredis.NewIntCmd(ctx, keyInfs...)
+	var totalVal int64 = 0
+
+	// merge the results.
+	for i := 0; i < mapLen; i++ {
+		curRes := <-resCh
+		if curVal, err := curRes.Result(); err != nil {
+			result.SetErr(err)
+			return result
+		} else {
+			totalVal += curVal
+		}
+	}
+
+	result.SetVal(totalVal)
+
+	return result
 }
 
 func (this *RedisCluster) Exists(ctx context.Context, keys ...string) *goredis.IntCmd {
