@@ -121,4 +121,50 @@ func TestSetAndGet(t *testing.T) {
 	res, err := rdb.Exists(ctx, mutlKey...).Result()
 	fmt.Printf("Is exists: %#v, %#v\n", res, err)
 	assert.Equal(res, int64(5), "test failed.")
+
+	res, err = rdb.Exists(ctx, []string{testCases[0][0]}...).Result()
+	fmt.Printf("Is exists: %#v, %#v\n", res, err)
+	assert.Equal(res, int64(1), "test failed.")
+
+}
+
+func TestMSetAndMGet(t *testing.T) {
+	rdb, err := newRedis()
+	if err != nil {
+		fmt.Printf("new error: %s\n", err.Error())
+		return
+	}
+
+	assert := assert.New(t)
+	testCases := []interface{}{}
+	keys := []string{}
+	for i := 0; i < 10; i++ {
+		curKey := fmt.Sprintf("t%d", i)
+		keys = append(keys, curKey)
+		testCases = append(testCases, curKey)
+		testCases = append(testCases, fmt.Sprintf("val-%d", i))
+	}
+
+	res := rdb.MSet(ctx, testCases...)
+	fmt.Printf("MSet Res: %#v\n", res)
+
+	getRes := rdb.MGet(ctx, keys...)
+
+	type data struct {
+		T0 string `redis:"t0"`
+		T1 string `redis:"t1"`
+		T2 string `redis:"t2"`
+		T3 string `redis:"t3"`
+		T4 string `redis:"t4"`
+		T5 string `redis:"t5"`
+		T6 string `redis:"t6"`
+		T7 string `redis:"t7"`
+		T8 string `redis:"t8"`
+		T9 string `redis:"t9"`
+	}
+	var d data
+	err = getRes.Scan(&d)
+
+	assert.Equal(err, nil, "test err failed.")
+	assert.Equal(d, data{"val-0", "val-1", "val-2", "val-3", "val-4", "val-5", "val-6", "val-7", "val-8", "val-9"}, "test data failed.")
 }

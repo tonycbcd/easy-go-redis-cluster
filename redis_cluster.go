@@ -22,7 +22,7 @@ var (
 const (
 	MAX_COUCUR = 6
 
-	VERSION = "0.0.1"
+	VERSION = "0.0.2"
 )
 
 type RedisCluster struct {
@@ -167,7 +167,7 @@ func (this *RedisCluster) Exists(ctx context.Context, keys ...string) *goredis.I
 
 	redisFactory := NewRedisClientFactory(this.Options())
 
-	keyInfs := this.strArr2InfArr(keys)
+	keyInfs := append([]interface{}{"exists"}, this.strArr2InfArr(keys)...)
 	mapLen := len(keyNodesMap)
 
 	wg := sync.WaitGroup{}
@@ -218,19 +218,153 @@ func (this *RedisCluster) Exists(ctx context.Context, keys ...string) *goredis.I
 	return result
 }
 
-func (this *RedisCluster) MGet(ctx context.Context, keys ...string) *goredis.SliceCmd {
-	// TODO
-	return this.ClusterClient.MGet(ctx, keys...)
-}
-
+// Refactor the MSet method.
 func (this *RedisCluster) MSet(ctx context.Context, values ...interface{}) *goredis.StatusCmd {
-	// TODO
-	return this.ClusterClient.MSet(ctx, values...)
+	cmdKeys := append([]interface{}{"mset"}, values...)
+	getError := func(err error) *goredis.StatusCmd {
+		sCms := goredis.NewStatusCmd(ctx, cmdKeys...)
+		sCms.SetErr(err)
+		return sCms
+	}
+
+	// init params.
+	var keys = []string{}
+	var keyValMap = map[string]interface{}{}
+	var err error
+	var helper = NewRedisHelper()
+	if keys, keyValMap, err = helper.GetKeysInPairInfs(values); err != nil {
+		return getError(err)
+	}
+
+	keyNodesMap := this.getKeyNodesMap(keys)
+	mapLen := len(keyNodesMap)
+
+	wg := sync.WaitGroup{}
+	wg.Add(mapLen)
+
+	type curResultModel struct {
+		Err error
+		Val string
+	}
+	var resCh chan *curResultModel = make(chan *curResultModel, mapLen)
+
+	redisFactory := NewRedisClientFactory(this.Options())
+
+	// MSet by group.
+	for _, node := range keyNodesMap {
+		go func(wg *sync.WaitGroup, resCh chan *curResultModel, curNode *hitKeysItem) {
+			defer wg.Done()
+
+			curRes := &curResultModel{}
+			curClient, err := redisFactory.GetRedisClient(curNode.HitNodeGP, true)
+			if err != nil {
+				curRes.Err = err
+				resCh <- curRes
+				return
+			}
+
+			curVals := helper.RestorePartInfs(curNode.Keys, keyValMap)
+			subRes := curClient.MSet(ctx, curVals...)
+			curVal, err := subRes.Result()
+			curRes.Err = err
+			curRes.Val = curVal
+			resCh <- curRes
+		}(&wg, resCh, node)
+	}
+
+	wg.Wait()
+
+	// merge the results.
+	result := goredis.NewStatusCmd(ctx, cmdKeys)
+	var lastStatus = ""
+
+	for i := 0; i < mapLen; i++ {
+		if curRes := <-resCh; curRes.Err != nil {
+			result.SetErr(curRes.Err)
+			return result
+		} else {
+			lastStatus = curRes.Val
+			if curRes.Val != "OK" {
+				break
+			}
+		}
+	}
+
+	result.SetVal(lastStatus)
+
+	return result
 }
 
+// Refactor the MSetNX method.
 func (this *RedisCluster) MSetNX(ctx context.Context, values ...interface{}) *goredis.BoolCmd {
 	// TODO
 	return this.ClusterClient.MSetNX(ctx, values...)
+}
+
+// Refactor the MGet method.
+func (this *RedisCluster) MGet(ctx context.Context, keys ...string) *goredis.SliceCmd {
+	cmdKeys := append([]interface{}{"mget"}, this.strArr2InfArr(keys)...)
+	getError := func(err error) *goredis.SliceCmd {
+		sCms := goredis.NewSliceCmd(ctx, cmdKeys...)
+		sCms.SetErr(err)
+		return sCms
+	}
+
+	// init params.
+	keyNodesMap := this.getKeyNodesMap(keys)
+	mapLen := len(keyNodesMap)
+
+	wg := sync.WaitGroup{}
+	wg.Add(mapLen)
+
+	type curResultModel struct {
+		Keys []string
+		SCmd *goredis.SliceCmd
+	}
+	var resCh chan *curResultModel = make(chan *curResultModel, mapLen)
+
+	redisFactory := NewRedisClientFactory(this.Options())
+
+	// MGet by group.
+	for _, node := range keyNodesMap {
+		go func(wg *sync.WaitGroup, resCh chan *curResultModel, curNode *hitKeysItem) {
+			defer wg.Done()
+
+			curRes := &curResultModel{
+				Keys: NewRedisHelper().RemoveRedisHashTags(curNode.Keys),
+			}
+			curClient, err := redisFactory.GetRedisClient(curNode.HitNodeGP, true)
+			if err != nil {
+				curRes.SCmd = getError(err)
+				resCh <- curRes
+				return
+			}
+
+			curRes.SCmd = curClient.MGet(ctx, curNode.Keys...)
+			resCh <- curRes
+		}(&wg, resCh, node)
+	}
+
+	wg.Wait()
+
+	// merge the results.
+	var vals = []interface{}{}
+
+	newKeys := []interface{}{"mget"}
+	for i := 0; i < mapLen; i++ {
+		curRes := <-resCh
+		if resArr, err := curRes.SCmd.Result(); err != nil {
+			return curRes.SCmd
+		} else {
+			newKeys = append(newKeys, this.strArr2InfArr(curRes.Keys)...)
+			vals = append(vals, resArr...)
+		}
+	}
+
+	sCms := goredis.NewSliceCmd(ctx, newKeys...)
+	sCms.SetVal(vals)
+
+	return sCms
 }
 
 func (this *RedisCluster) Pipeline() goredis.Pipeliner {
