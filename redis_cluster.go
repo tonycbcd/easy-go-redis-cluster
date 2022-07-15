@@ -11,7 +11,6 @@ import (
 	"errors"
 	goredis "github.com/go-redis/redis/v8"
 	"log"
-	"sync"
 	"time"
 )
 
@@ -172,13 +171,9 @@ func (this *RedisCluster) Del(ctx context.Context, keys ...string) *goredis.IntC
 
 	var resCh chan *goredis.IntCmd = make(chan *goredis.IntCmd, mapLen)
 
-	wg := sync.WaitGroup{}
-	wg.Add(mapLen)
-
 	// To del by group.
 	for _, node := range keyNodesMap {
-		go func(wg *sync.WaitGroup, resCh chan *goredis.IntCmd, curNode *hitKeysItem) {
-			defer wg.Done()
+		go func(resCh chan *goredis.IntCmd, curNode *hitKeysItem) {
 			curClient, err := redisFactory.GetRedisClient(curNode.HitNodeGP, true)
 			if err != nil {
 				resCh <- getError(err)
@@ -186,10 +181,8 @@ func (this *RedisCluster) Del(ctx context.Context, keys ...string) *goredis.IntC
 			}
 
 			resCh <- curClient.Del(ctx, curNode.Keys...)
-		}(&wg, resCh, node)
+		}(resCh, node)
 	}
-
-	wg.Wait()
 
 	result := goredis.NewIntCmd(ctx, keyInfs...)
 	var totalVal int64 = 0
@@ -218,9 +211,6 @@ func (this *RedisCluster) Exists(ctx context.Context, keys ...string) *goredis.I
 	keyInfs := append([]interface{}{"exists"}, this.strArr2InfArr(keys)...)
 	mapLen := len(keyNodesMap)
 
-	wg := sync.WaitGroup{}
-	wg.Add(mapLen)
-
 	type curResultModel struct {
 		Err error
 		Val int64
@@ -228,9 +218,7 @@ func (this *RedisCluster) Exists(ctx context.Context, keys ...string) *goredis.I
 	var resCh chan *curResultModel = make(chan *curResultModel, mapLen)
 
 	for _, node := range keyNodesMap {
-		go func(wg *sync.WaitGroup, resCh chan *curResultModel, curNode *hitKeysItem) {
-			defer wg.Done()
-
+		go func(resCh chan *curResultModel, curNode *hitKeysItem) {
 			curRes := &curResultModel{}
 			curClient, err := redisFactory.GetRedisClient(curNode.HitNodeGP, true)
 			if err != nil {
@@ -244,10 +232,8 @@ func (this *RedisCluster) Exists(ctx context.Context, keys ...string) *goredis.I
 			curRes.Err = err
 			curRes.Val = curVal
 			resCh <- curRes
-		}(&wg, resCh, node)
+		}(resCh, node)
 	}
-
-	wg.Wait()
 
 	result := goredis.NewIntCmd(ctx, keyInfs...)
 	var totalVal int64 = 0
@@ -287,9 +273,6 @@ func (this *RedisCluster) MSet(ctx context.Context, values ...interface{}) *gore
 	keyNodesMap := this.getKeyNodesMap(keys)
 	mapLen := len(keyNodesMap)
 
-	wg := sync.WaitGroup{}
-	wg.Add(mapLen)
-
 	type curResultModel struct {
 		Err error
 		Val string
@@ -300,9 +283,7 @@ func (this *RedisCluster) MSet(ctx context.Context, values ...interface{}) *gore
 
 	// MSet by group.
 	for _, node := range keyNodesMap {
-		go func(wg *sync.WaitGroup, resCh chan *curResultModel, curNode *hitKeysItem) {
-			defer wg.Done()
-
+		go func(resCh chan *curResultModel, curNode *hitKeysItem) {
 			curRes := &curResultModel{}
 			curClient, err := redisFactory.GetRedisClient(curNode.HitNodeGP, true)
 			if err != nil {
@@ -317,10 +298,8 @@ func (this *RedisCluster) MSet(ctx context.Context, values ...interface{}) *gore
 			curRes.Err = err
 			curRes.Val = curVal
 			resCh <- curRes
-		}(&wg, resCh, node)
+		}(resCh, node)
 	}
-
-	wg.Wait()
 
 	// merge the results.
 	result := goredis.NewStatusCmd(ctx, cmdKeys)
@@ -362,9 +341,6 @@ func (this *RedisCluster) MGet(ctx context.Context, keys ...string) *goredis.Sli
 	keyNodesMap := this.getKeyNodesMap(keys)
 	mapLen := len(keyNodesMap)
 
-	wg := sync.WaitGroup{}
-	wg.Add(mapLen)
-
 	type curResultModel struct {
 		Keys []string
 		SCmd *goredis.SliceCmd
@@ -375,9 +351,7 @@ func (this *RedisCluster) MGet(ctx context.Context, keys ...string) *goredis.Sli
 
 	// MGet by group.
 	for _, node := range keyNodesMap {
-		go func(wg *sync.WaitGroup, resCh chan *curResultModel, curNode *hitKeysItem) {
-			defer wg.Done()
-
+		go func(resCh chan *curResultModel, curNode *hitKeysItem) {
 			curRes := &curResultModel{
 				Keys: NewRedisHelper().RemoveRedisHashTags(curNode.Keys),
 			}
@@ -390,10 +364,8 @@ func (this *RedisCluster) MGet(ctx context.Context, keys ...string) *goredis.Sli
 
 			curRes.SCmd = curClient.MGet(ctx, curNode.Keys...)
 			resCh <- curRes
-		}(&wg, resCh, node)
+		}(resCh, node)
 	}
-
-	wg.Wait()
 
 	// merge the results.
 	var vals = []interface{}{}
