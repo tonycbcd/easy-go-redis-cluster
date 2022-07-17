@@ -83,7 +83,7 @@ func TestRedisCluster(t *testing.T) {
 				} else {
 					fmt.Printf("%s Job-%d %s = %s-%d \n", time.Now().Format("2006-01-02 15:04:05"), idx, key, val, i)
 				}
-				time.Sleep(500 * time.Millisecond)
+				//time.Sleep(500 * time.Millisecond)
 			}
 		}(&wg, i)
 	}

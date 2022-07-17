@@ -39,25 +39,37 @@ type hitKeysItem struct {
 func NewClusterClient(opt *goredis.ClusterOptions) (*RedisCluster, error) {
 	core := goredis.NewClusterClient(opt)
 
+	obj := &RedisCluster{core, nil, nil}
+	if err := obj.initClustInfo(); err != nil {
+		return nil, err
+	}
+
+	return obj, nil
+}
+
+func (this *RedisCluster) initClustInfo() error {
 	var clusterInfo *clusterInfo
 	var nodes *redisNodes
 
-	if ci, err := core.ClusterInfo(ctx).Result(); err != nil {
-		return nil, err
-	} else if cn, err := core.ClusterNodes(ctx).Result(); err != nil {
-		return nil, err
+	if ci, err := this.ClusterInfo(ctx).Result(); err != nil {
+		return err
+	} else if cn, err := this.ClusterNodes(ctx).Result(); err != nil {
+		return err
 	} else {
 		clusterInfo = NewClusterInfo(ci)
 		if clusterInfo.Cluster_state != "ok" {
-			return nil, errors.New("cluster is not OK")
+			return errors.New("cluster is not OK")
 		}
 
 		if nodes, err = NewRedisNodes(cn); err != nil {
-			return nil, err
+			return err
 		}
+
+		this.clusterInfo = clusterInfo
+		this.nodes = nodes
 	}
 
-	return &RedisCluster{core, clusterInfo, nodes}, nil
+	return nil
 }
 
 func (this *RedisCluster) getKeyNodesMap(keys []string) map[string]*hitKeysItem {
