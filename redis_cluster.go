@@ -21,7 +21,7 @@ var (
 const (
 	MAX_COUCUR = 6
 
-	VERSION = "0.0.2"
+	VERSION = "0.0.3"
 )
 
 type RedisCluster struct {
@@ -384,24 +384,4 @@ func (this *RedisCluster) MGet(ctx context.Context, keys ...string) *goredis.Sli
 	sCms.SetVal(vals)
 
 	return sCms
-}
-
-func (this *RedisCluster) Pipeline() goredis.Pipeliner {
-	// TODO
-	return this.ClusterClient.Pipeline()
-}
-
-/*func (this *RedisCluster) Pipelined(ctx context.Context, fn func(goredis.Pipeliner) error) ([]goredis.Cmder, error)
-    // TODO
-    return this.ClusterClient.Pipelined(ctx, fn)
-}*/
-
-func (this *RedisCluster) TxPipeline() goredis.Pipeliner {
-	// TODO
-	return this.ClusterClient.TxPipeline()
-}
-
-func (this *RedisCluster) TxPipelined(ctx context.Context, fn func(goredis.Pipeliner) error) ([]goredis.Cmder, error) {
-	// TODO
-	return this.ClusterClient.TxPipelined(ctx, fn)
 }

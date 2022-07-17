@@ -195,3 +195,34 @@ func TestDel(t *testing.T) {
 	res = rdb.Exists(ctx, keys...)
 	assert.Equal(res.Val() == 0, true, "test delete failed")
 }
+
+func TestPipeline(t *testing.T) {
+	rdb, err := newRedis()
+	if err != nil {
+		fmt.Printf("new error: %s\n", err.Error())
+		return
+	}
+
+	pipe := rdb.Pipeline()
+
+	for i := 0; i < 10; i++ {
+		pipe.Set(ctx, fmt.Sprintf("test-%d", i), fmt.Sprintf("val-%d", i), 300*time.Second)
+	}
+
+	for i := 0; i < 10; i++ {
+		pipe.Expire(ctx, fmt.Sprintf("test-%d", i), 3600*time.Second)
+	}
+
+	for i := 0; i < 50; i++ {
+		pipe.LPush(ctx, "test-list", i+1)
+	}
+
+	pipe.Exec(ctx)
+
+	assert := assert.New(t)
+	for i := 0; i < 10; i++ {
+		res, _ := rdb.Get(ctx, fmt.Sprintf("test-%d", i)).Result()
+		assert.Equal(res, fmt.Sprintf("val-%d", i), fmt.Sprintf("test %d failed", i))
+	}
+
+}
