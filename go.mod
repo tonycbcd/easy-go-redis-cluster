@@ -1,4 +1,4 @@
-module github.com/tonycbcd/easy-redis-go-cluster
+module github.com/tonycbcd/easy-go-redis-cluster
 
 go 1.17
 

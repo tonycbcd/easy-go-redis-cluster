@@ -1,4 +1,4 @@
-/// Copyright 2022, SuccessfulMatch.com All rights reserved.
+// Copyright (C) 2022
 // Author FrankXu <frankxury@gmail.com>
 // Build on 2022/07/11
 

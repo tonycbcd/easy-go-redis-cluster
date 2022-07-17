@@ -1,4 +1,4 @@
-// Copyright 2022, SuccessfulMatch.com All rights reserved.
+// Copyright (C) 2022
 // Author FrankXu <frankxury@gmail.com>
 // Build on 2022/07/01
 
@@ -74,7 +74,7 @@ func (this *RedisCluster) getKeyNodesMap(keys []string) map[string]*hitKeysItem 
 				}
 			}
 
-			keyNodesMap[hitNodeGP.master.Id].Keys = append(keyNodesMap[hitNodeGP.master.Id].Keys, hitNodeGP.master.RebuildKey(key))
+			keyNodesMap[hitNodeGP.master.Id].Keys = append(keyNodesMap[hitNodeGP.master.Id].Keys, key)
 		} else {
 			log.Printf("The slot node has not been found for the key '%s'", key)
 		}
@@ -109,50 +109,6 @@ func (this *RedisCluster) strArr2InfArr(keys []string) []interface{} {
 		infArr = append(infArr, one)
 	}
 	return infArr
-}
-
-// Refactor the Set method.
-func (this *RedisCluster) Set(ctx context.Context, key string, value interface{}, expiration time.Duration) *goredis.StatusCmd {
-	getError := func(err error) *goredis.StatusCmd {
-		sCms := goredis.NewStatusCmd(ctx, key, value, expiration)
-		sCms.SetErr(err)
-		return sCms
-	}
-
-	hitGroup, err := this.getHitGroupInMap("", this.getKeyNodesMap([]string{key}))
-	if err != nil {
-		return getError(err)
-	}
-
-	redisFactory := NewRedisClientFactory(this.Options())
-	curClient, err := redisFactory.GetRedisClient(hitGroup, true)
-	if err != nil {
-		return getError(err)
-	}
-
-	return curClient.Set(ctx, hitGroup.master.RebuildKey(key), value, expiration)
-}
-
-// Refactor the Get method.
-func (this *RedisCluster) Get(ctx context.Context, key string) *goredis.StringCmd {
-	getError := func(err error) *goredis.StringCmd {
-		sCms := goredis.NewStringCmd(ctx, key)
-		sCms.SetErr(err)
-		return sCms
-	}
-
-	hitGroup, err := this.getHitGroupInMap("", this.getKeyNodesMap([]string{key}))
-	if err != nil {
-		return getError(err)
-	}
-
-	redisFactory := NewRedisClientFactory(this.Options())
-	curClient, err := redisFactory.GetRedisClient(hitGroup, true)
-	if err != nil {
-		return getError(err)
-	}
-
-	return curClient.Get(ctx, hitGroup.master.RebuildKey(key))
 }
 
 // Refactor the Del method.
@@ -204,6 +160,10 @@ func (this *RedisCluster) Del(ctx context.Context, keys ...string) *goredis.IntC
 }
 
 func (this *RedisCluster) Exists(ctx context.Context, keys ...string) *goredis.IntCmd {
+	if len(keys) == 1 {
+		return this.ClusterClient.Exists(ctx, keys...)
+	}
+
 	keyNodesMap := this.getKeyNodesMap(keys)
 
 	redisFactory := NewRedisClientFactory(this.Options())
@@ -227,10 +187,26 @@ func (this *RedisCluster) Exists(ctx context.Context, keys ...string) *goredis.I
 				return
 			}
 
-			subRes := curClient.Exists(ctx, curNode.Keys...)
-			curVal, err := subRes.Result()
-			curRes.Err = err
-			curRes.Val = curVal
+			curPipe := curClient.Pipeline()
+			resArr := []*goredis.IntCmd{}
+			for _, curKey := range curNode.Keys {
+				res := curPipe.Exists(ctx, curKey)
+				resArr = append(resArr, res)
+			}
+
+			_, err = curPipe.Exec(ctx)
+			if err != nil {
+				curRes.Err = err
+				resCh <- curRes
+				return
+			}
+
+			var curTotal int64 = 0
+			for _, one := range resArr {
+				curTotal += one.Val()
+			}
+
+			curRes.Val = curTotal
 			resCh <- curRes
 		}(resCh, node)
 	}
@@ -253,7 +229,7 @@ func (this *RedisCluster) Exists(ctx context.Context, keys ...string) *goredis.I
 }
 
 // Refactor the MSet method.
-func (this *RedisCluster) MSet(ctx context.Context, values ...interface{}) *goredis.StatusCmd {
+func (this *RedisCluster) MSet(ctx context.Context, dur time.Duration, values ...interface{}) *goredis.StatusCmd {
 	cmdKeys := append([]interface{}{"mset"}, values...)
 	getError := func(err error) *goredis.StatusCmd {
 		sCms := goredis.NewStatusCmd(ctx, cmdKeys...)
@@ -281,7 +257,7 @@ func (this *RedisCluster) MSet(ctx context.Context, values ...interface{}) *gore
 
 	redisFactory := NewRedisClientFactory(this.Options())
 
-	// MSet by group.
+	// MSet by group Pipeline.
 	for _, node := range keyNodesMap {
 		go func(resCh chan *curResultModel, curNode *hitKeysItem) {
 			curRes := &curResultModel{}
@@ -292,11 +268,29 @@ func (this *RedisCluster) MSet(ctx context.Context, values ...interface{}) *gore
 				return
 			}
 
-			curVals := helper.RestorePartInfs(curNode.Keys, keyValMap)
-			subRes := curClient.MSet(ctx, curVals...)
-			curVal, err := subRes.Result()
-			curRes.Err = err
-			curRes.Val = curVal
+			curPipe := curClient.Pipeline()
+			resArr := []*goredis.StatusCmd{}
+			for _, curKey := range curNode.Keys {
+				resArr = append(resArr, curPipe.Set(ctx, curKey, keyValMap[curKey], dur))
+			}
+
+			_, err = curPipe.Exec(ctx)
+			if err != nil {
+				curRes.Err = err
+				resCh <- curRes
+				return
+			}
+
+			for _, one := range resArr {
+				if one.Val() != "OK" {
+					curRes.Val = "NO"
+					curRes.Err = one.Err()
+					resCh <- curRes
+					return
+				}
+			}
+
+			curRes.Val = "OK"
 			resCh <- curRes
 		}(resCh, node)
 	}
@@ -322,28 +316,17 @@ func (this *RedisCluster) MSet(ctx context.Context, values ...interface{}) *gore
 	return result
 }
 
-// Refactor the MSetNX method.
-func (this *RedisCluster) MSetNX(ctx context.Context, values ...interface{}) *goredis.BoolCmd {
-	// TODO
-	return this.ClusterClient.MSetNX(ctx, values...)
-}
-
 // Refactor the MGet method.
 func (this *RedisCluster) MGet(ctx context.Context, keys ...string) *goredis.SliceCmd {
 	cmdKeys := append([]interface{}{"mget"}, this.strArr2InfArr(keys)...)
-	getError := func(err error) *goredis.SliceCmd {
-		sCms := goredis.NewSliceCmd(ctx, cmdKeys...)
-		sCms.SetErr(err)
-		return sCms
-	}
 
 	// init params.
 	keyNodesMap := this.getKeyNodesMap(keys)
 	mapLen := len(keyNodesMap)
 
 	type curResultModel struct {
-		Keys []string
-		SCmd *goredis.SliceCmd
+		Err error
+		Val map[string]*goredis.StringCmd
 	}
 	var resCh chan *curResultModel = make(chan *curResultModel, mapLen)
 
@@ -352,17 +335,28 @@ func (this *RedisCluster) MGet(ctx context.Context, keys ...string) *goredis.Sli
 	// MGet by group.
 	for _, node := range keyNodesMap {
 		go func(resCh chan *curResultModel, curNode *hitKeysItem) {
-			curRes := &curResultModel{
-				Keys: NewRedisHelper().RemoveRedisHashTags(curNode.Keys),
-			}
+			curRes := &curResultModel{}
 			curClient, err := redisFactory.GetRedisClient(curNode.HitNodeGP, true)
 			if err != nil {
-				curRes.SCmd = getError(err)
+				curRes.Err = err
 				resCh <- curRes
 				return
 			}
 
-			curRes.SCmd = curClient.MGet(ctx, curNode.Keys...)
+			curPipe := curClient.Pipeline()
+			resMap := map[string]*goredis.StringCmd{}
+			for _, curKey := range curNode.Keys {
+				resMap[curKey] = curPipe.Get(ctx, curKey)
+			}
+
+			_, err = curPipe.Exec(ctx)
+			if err != nil {
+				curRes.Err = err
+				resCh <- curRes
+				return
+			}
+
+			curRes.Val = resMap
 			resCh <- curRes
 		}(resCh, node)
 	}
@@ -370,18 +364,23 @@ func (this *RedisCluster) MGet(ctx context.Context, keys ...string) *goredis.Sli
 	// merge the results.
 	var vals = []interface{}{}
 
-	newKeys := []interface{}{"mget"}
+	sCms := goredis.NewSliceCmd(ctx, cmdKeys...)
+	resultMap := map[string]*goredis.StringCmd{}
 	for i := 0; i < mapLen; i++ {
-		curRes := <-resCh
-		if resArr, err := curRes.SCmd.Result(); err != nil {
-			return curRes.SCmd
+		if curRes := <-resCh; curRes.Err != nil {
+			sCms.SetErr(curRes.Err)
+			return sCms
 		} else {
-			newKeys = append(newKeys, this.strArr2InfArr(curRes.Keys)...)
-			vals = append(vals, resArr...)
+			for key, curCmd := range curRes.Val {
+				resultMap[key] = curCmd
+			}
 		}
 	}
 
-	sCms := goredis.NewSliceCmd(ctx, newKeys...)
+	for _, curKey := range keys {
+		vals = append(vals, resultMap[curKey].Val())
+	}
+
 	sCms.SetVal(vals)
 
 	return sCms

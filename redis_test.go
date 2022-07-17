@@ -1,4 +1,4 @@
-// Copyright 2022, SuccessfulMatch.com All rights reserved.
+// Copyright (C) 2022
 // Author FrankXu <frankxury@gmail.com>
 // Build on 2022/07/11
 
@@ -125,7 +125,6 @@ func TestSetAndGet(t *testing.T) {
 	res, err = rdb.Exists(ctx, []string{testCases[0][0]}...).Result()
 	fmt.Printf("Is exists: %#v, %#v\n", res, err)
 	assert.Equal(res, int64(1), "test failed.")
-
 }
 
 func TestMSetAndMGet(t *testing.T) {
@@ -145,10 +144,11 @@ func TestMSetAndMGet(t *testing.T) {
 		testCases = append(testCases, fmt.Sprintf("val-%d", i))
 	}
 
-	res := rdb.MSet(ctx, testCases...)
+	res := rdb.MSet(ctx, 300*time.Second, testCases...)
 	fmt.Printf("MSet Res: %#v\n", res)
 
 	getRes := rdb.MGet(ctx, keys...)
+	fmt.Printf("MGet Res: %#v\n", getRes)
 
 	type data struct {
 		T0 string `redis:"t0"`
