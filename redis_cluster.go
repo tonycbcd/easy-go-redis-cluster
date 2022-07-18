@@ -14,10 +14,6 @@ import (
 	"time"
 )
 
-var (
-	ctx = context.Background()
-)
-
 const (
 	MAX_COUCUR = 6
 
@@ -36,18 +32,18 @@ type hitKeysItem struct {
 	HitNodeGP *redisGroup
 }
 
-func NewClusterClient(opt *goredis.ClusterOptions) (*RedisCluster, error) {
+func NewClusterClient(ctx context.Context, opt *goredis.ClusterOptions) (*RedisCluster, error) {
 	core := goredis.NewClusterClient(opt)
 
 	obj := &RedisCluster{core, nil, nil}
-	if err := obj.initClustInfo(); err != nil {
+	if err := obj.initClustInfo(ctx); err != nil {
 		return nil, err
 	}
 
 	return obj, nil
 }
 
-func (this *RedisCluster) initClustInfo() error {
+func (this *RedisCluster) initClustInfo(ctx context.Context) error {
 	var clusterInfo *clusterInfo
 	var nodes *redisNodes
 
@@ -132,6 +128,10 @@ func (this *RedisCluster) Del(ctx context.Context, keys ...string) *goredis.IntC
 		return iCmd
 	}
 
+	triedTimes := 0
+
+TryAgain:
+
 	// init the params.
 	keyNodesMap := this.getKeyNodesMap(keys)
 	mapLen := len(keyNodesMap)
@@ -159,6 +159,14 @@ func (this *RedisCluster) Del(ctx context.Context, keys ...string) *goredis.IntC
 	for i := 0; i < mapLen; i++ {
 		curRes := <-resCh
 		if curVal, err := curRes.Result(); err != nil {
+			if NewRedisHelper().IsMovedError(err) {
+				this.initClustInfo(this.ClusterClient.Context())
+				if triedTimes < 3 {
+					triedTimes += 1
+					goto TryAgain
+				}
+			}
+
 			result.SetErr(err)
 			return result
 		} else {
@@ -175,6 +183,10 @@ func (this *RedisCluster) Exists(ctx context.Context, keys ...string) *goredis.I
 	if len(keys) == 1 {
 		return this.ClusterClient.Exists(ctx, keys...)
 	}
+
+	triedTimes := 0
+
+TryAgain:
 
 	keyNodesMap := this.getKeyNodesMap(keys)
 
@@ -207,7 +219,7 @@ func (this *RedisCluster) Exists(ctx context.Context, keys ...string) *goredis.I
 			}
 
 			_, err = curPipe.Exec(ctx)
-			if err != nil {
+			if err != nil && err != goredis.Nil {
 				curRes.Err = err
 				resCh <- curRes
 				return
@@ -228,6 +240,14 @@ func (this *RedisCluster) Exists(ctx context.Context, keys ...string) *goredis.I
 
 	for i := 0; i < mapLen; i++ {
 		if curRes := <-resCh; curRes.Err != nil {
+			if NewRedisHelper().IsMovedError(curRes.Err) {
+				this.initClustInfo(this.ClusterClient.Context())
+				if triedTimes < 3 {
+					triedTimes += 1
+					goto TryAgain
+				}
+			}
+
 			result.SetErr(curRes.Err)
 			return result
 		} else {
@@ -257,6 +277,10 @@ func (this *RedisCluster) MSet(ctx context.Context, dur time.Duration, values ..
 	if keys, keyValMap, err = helper.GetKeysInPairInfs(values); err != nil {
 		return getError(err)
 	}
+
+	triedTimes := 0
+
+TryAgain:
 
 	keyNodesMap := this.getKeyNodesMap(keys)
 	mapLen := len(keyNodesMap)
@@ -313,6 +337,14 @@ func (this *RedisCluster) MSet(ctx context.Context, dur time.Duration, values ..
 
 	for i := 0; i < mapLen; i++ {
 		if curRes := <-resCh; curRes.Err != nil {
+			if NewRedisHelper().IsMovedError(curRes.Err) {
+				this.initClustInfo(this.ClusterClient.Context())
+				if triedTimes < 3 {
+					triedTimes += 1
+					goto TryAgain
+				}
+			}
+
 			result.SetErr(curRes.Err)
 			return result
 		} else {
@@ -331,6 +363,10 @@ func (this *RedisCluster) MSet(ctx context.Context, dur time.Duration, values ..
 // Refactor the MGet method.
 func (this *RedisCluster) MGet(ctx context.Context, keys ...string) *goredis.SliceCmd {
 	cmdKeys := append([]interface{}{"mget"}, this.strArr2InfArr(keys)...)
+
+	triedTimes := 0
+
+TryAgain:
 
 	// init params.
 	keyNodesMap := this.getKeyNodesMap(keys)
@@ -362,7 +398,7 @@ func (this *RedisCluster) MGet(ctx context.Context, keys ...string) *goredis.Sli
 			}
 
 			_, err = curPipe.Exec(ctx)
-			if err != nil {
+			if err != nil && err != goredis.Nil {
 				curRes.Err = err
 				resCh <- curRes
 				return
@@ -380,6 +416,14 @@ func (this *RedisCluster) MGet(ctx context.Context, keys ...string) *goredis.Sli
 	resultMap := map[string]*goredis.StringCmd{}
 	for i := 0; i < mapLen; i++ {
 		if curRes := <-resCh; curRes.Err != nil {
+			if NewRedisHelper().IsMovedError(curRes.Err) {
+				this.initClustInfo(this.ClusterClient.Context())
+				if triedTimes < 3 {
+					triedTimes += 1
+					goto TryAgain
+				}
+			}
+
 			sCms.SetErr(curRes.Err)
 			return sCms
 		} else {

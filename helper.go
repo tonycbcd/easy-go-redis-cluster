@@ -9,6 +9,7 @@ package redis
 import (
 	"errors"
 	"regexp"
+	"strings"
 )
 
 type RedisHelper struct{}
@@ -67,4 +68,12 @@ func (this *RedisHelper) RestorePartInfs(keys []string, keyValMap map[string]int
 	}
 
 	return infs
+}
+
+func (this *RedisHelper) IsMovedError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errInfo := err.Error()
+	return strings.Index(errInfo, "MOVED") >= 0 || strings.Index(errInfo, "CROSSSLOT Keys") >= 0
 }

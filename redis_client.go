@@ -7,6 +7,7 @@
 package redis
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	goredis "github.com/go-redis/redis/v8"
@@ -31,7 +32,7 @@ var (
 func NewRedisClient(op *goredis.Options) (*RedisClient, error) {
 	r := goredis.NewClient(op)
 	oneRedisClient := &RedisClient{r}
-	if _, err := oneRedisClient.Ping(ctx).Result(); err != nil {
+	if _, err := oneRedisClient.Ping(context.Background()).Result(); err != nil {
 		return nil, err
 	}
 	return oneRedisClient, nil
@@ -49,6 +50,13 @@ func NewRedisClientFactory(op *goredis.ClusterOptions) *RedisClientFactory {
 
 func (this *RedisClientFactory) getClientKey(node *redisNode) string {
 	return fmt.Sprintf("%s:%s", node.Ip, node.Port)
+}
+
+func (this *RedisClientFactory) CleanStore() {
+	this.store.Range(func(k, v interface{}) bool {
+		this.store.Delete(k)
+		return true
+	})
 }
 
 func (this *RedisClientFactory) getCurOptions(node *redisNode) *goredis.Options {
