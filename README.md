@@ -124,3 +124,47 @@ PASS
 ok      github.com/tonycbcd/easy-go-redis-cluster       6.102s
 ```
 
+
+
+## How to quickly build a test Redis Cluster in Docker
+
+Create the Redis node folders:
+
+```shell
+root# for i in {8001..8006}; do mkdir -p /opt/redis-cluster/$i/data; done 
+```
+
+Write a docker-compose.yml:
+
+```shell
+root# echo "version: '1'\n\nservices:" > docker-compose.yml
+root# for i in {1..6}; do echo " redis$i: \n  image: publicisworldwide/redis-cluster\n  restart: always\n  volumes:\n   - /opt/redis-cluster/800$i/data:/data\n  environment:\n   - REDIS_PORT=800$i\n  ports:  \n    - '800$i:800$i'       # Service port\n    - '1800$i:1800$i'   # Cluster port\n" >> docker-compose.yml; done
+```
+
+Init ans start running all Redis nodes:
+
+```shell
+root# docker-compose up -d
+```
+
+Create a Redis Cluster
+
+```shell
+root# docker run  --rm -it inem0o/redis-trib create --replicas 1 172.17.0.1:8001 172.17.0.1:8002 172.17.0.1:8003 172.17.0.1:8004 172.17.0.1:8005 172.17.0.1:8006
+```
+
+Check all Redis nodes status
+
+```shell
+root# docker-compose ps
+
+         Name                       Command               State                                  Ports                                
+--------------------------------------------------------------------------------------------------------------------------------------
+dockercompose_redis1_1   /usr/local/bin/entrypoint. ...   Up      0.0.0.0:18001->18001/tcp, 6379/tcp, 7000/tcp, 0.0.0.0:8001->8001/tcp
+dockercompose_redis2_1   /usr/local/bin/entrypoint. ...   Up      0.0.0.0:18002->18002/tcp, 6379/tcp, 7000/tcp, 0.0.0.0:8002->8002/tcp
+dockercompose_redis3_1   /usr/local/bin/entrypoint. ...   Up      0.0.0.0:18003->18003/tcp, 6379/tcp, 7000/tcp, 0.0.0.0:8003->8003/tcp
+dockercompose_redis4_1   /usr/local/bin/entrypoint. ...   Up      0.0.0.0:18004->18004/tcp, 6379/tcp, 7000/tcp, 0.0.0.0:8004->8004/tcp
+dockercompose_redis5_1   /usr/local/bin/entrypoint. ...   Up      0.0.0.0:18005->18005/tcp, 6379/tcp, 7000/tcp, 0.0.0.0:8005->8005/tcp
+dockercompose_redis6_1   /usr/local/bin/entrypoint. ...   Up      0.0.0.0:18006->18006/tcp, 6379/tcp, 7000/tcp, 0.0.0.0:8006->8006/tcp
+```
+
