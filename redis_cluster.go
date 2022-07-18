@@ -32,7 +32,9 @@ type hitKeysItem struct {
 	HitNodeGP *redisGroup
 }
 
-func NewClusterClient(ctx context.Context, opt *goredis.ClusterOptions) (*RedisCluster, error) {
+type ClusterOptions = goredis.ClusterOptions
+
+func NewClusterClient(ctx context.Context, opt *ClusterOptions) (*RedisCluster, error) {
 	core := goredis.NewClusterClient(opt)
 
 	obj := &RedisCluster{core, nil, nil}
