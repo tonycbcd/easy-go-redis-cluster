@@ -141,7 +141,7 @@ root# echo "version: '1'\n\nservices:" > docker-compose.yml
 root# for i in {1..6}; do echo " redis$i: \n  image: publicisworldwide/redis-cluster\n  restart: always\n  volumes:\n   - /opt/redis-cluster/800$i/data:/data\n  environment:\n   - REDIS_PORT=800$i\n  ports:  \n    - '800$i:800$i'       # Service port\n    - '1800$i:1800$i'   # Cluster port\n" >> docker-compose.yml; done
 ```
 
-Init ans start running all Redis nodes:
+Init and start running all Redis nodes:
 
 ```shell
 root# docker-compose up -d
