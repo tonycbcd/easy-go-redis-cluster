@@ -235,5 +235,54 @@ func TestPipeline(t *testing.T) {
 		res, _ := rdb.Get(testctx, fmt.Sprintf("test-%d", i)).Result()
 		assert.Equal(res, fmt.Sprintf("val-%d", i), fmt.Sprintf("test %d failed", i))
 	}
+}
 
+func BenchmarkMSetAndMGet(b *testing.B) {
+	rdb, err := newRedis()
+	if err != nil {
+		fmt.Printf("new error: %s\n", err.Error())
+		return
+	}
+
+	keys := []string{}
+	kvs := []interface{}{}
+
+	wg := sync.WaitGroup{}
+	for i := 0; i < 20000; i++ {
+		curKey := fmt.Sprintf("test-%d", i)
+		keys = append(keys, curKey)
+		kvs = append(kvs, curKey)
+		kvs = append(kvs, fmt.Sprintf("val-%d", i))
+
+		if i > 0 && i%100 == 0 {
+			go func(wg *sync.WaitGroup, kvs []interface{}) {
+				wg.Add(1)
+				res := rdb.MSet(testctx, 300*time.Second, kvs...)
+				err := res.Err()
+				if err != nil {
+					fmt.Printf("Set status: %#v\n", err)
+				}
+				wg.Done()
+			}(&wg, kvs)
+
+			go func(wg *sync.WaitGroup, keys []string) {
+				wg.Add(1)
+				res := rdb.MGet(testctx, keys...)
+				err := res.Err()
+				if err != nil {
+					fmt.Printf("Get status: %#v\n", err)
+				}
+				wg.Done()
+			}(&wg, keys)
+
+			keys = []string{}
+			kvs = []interface{}{}
+		}
+	}
+
+	wg.Wait()
+
+	stats := rdb.PoolStats()
+	fmt.Printf("Hits=%d Misses=%d Timeouts=%d TotalConns=%d IdleConns=%d StaleConns=%d\n",
+		stats.Hits, stats.Misses, stats.Timeouts, stats.TotalConns, stats.IdleConns, stats.StaleConns)
 }
