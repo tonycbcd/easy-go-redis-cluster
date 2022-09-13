@@ -14,14 +14,18 @@ import (
 	//goredis "github.com/go-redis/redis/v8"
 )
 
+type slotArea struct {
+	StartSlot uint16
+	EndSlot   uint16
+}
+
 type redisNode struct {
 	Id        string
 	Ip        string
 	Port      string
 	Role      string // support: master or slave.
 	MasterId  string // for slave role.
-	StartSlot uint16
-	EndSlot   uint16
+	SlotAreas []*slotArea
 	SlotName  string
 }
 
@@ -33,8 +37,9 @@ const (
 )
 
 // for examples:
-//  2be788e052541b5184fd86d74031eefb85814796 172.17.0.1:8001@18001 myself,master - 0 1657610133000 1 connected 0-5460
-//  8b8d15c52ef32935ea5561eeb6698f9ebf062462 172.24.0.1:8005@18005 slave 90f04f9df96bd416194a548a64cc4d282764e2d2 0 1657610134793 5 connected
+// 25837095b1df96c37ffa96493e4bf2e693630be7 172.29.16.7:6379@1122 master - 0 1663066583000 1 connected 8192-11406 14138-16383
+// 7bc86a205acc548ffe415dc6649f636a273d655f 172.29.18.7:6379@1122 master - 0 1663066583895 2 connected 5462-8191 11407-14137
+// 8f3428825dcddfd603ad07bb6219fc756efc7102 172.29.19.4:6379@1122 myself,master - 0 1663066579000 0 connected 0-5461
 func NewRedisNode(info string) (*redisNode, error) {
 	newNode := &redisNode{}
 	err := newNode.ParseAndSet(info)
@@ -66,9 +71,10 @@ func (this *redisNode) parseAndSetMaster(frontInfo, lastInfo string) error {
 	comps = strings.Split(lastInfo, " ")
 	for _, one := range comps {
 		if strings.Index(one, "-") > 0 {
-			this.StartSlot, this.EndSlot = this.getSlots(one)
-			if this.EndSlot > 0 {
-				this.SlotName = NewCRC16().GetHashBySlotArea("n", this.StartSlot, this.EndSlot)
+			startSlot, endSlot := this.getSlots(one)
+			this.SlotAreas = append(this.SlotAreas, &slotArea{startSlot, endSlot})
+			if this.SlotName == "" && endSlot > 0 {
+				this.SlotName = NewCRC16().GetHashBySlotArea("n", startSlot, endSlot)
 				break
 			}
 		}

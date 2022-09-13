@@ -17,7 +17,7 @@ import (
 const (
 	MAX_COUCUR = 6
 
-	VERSION = "0.0.3"
+	VERSION = "0.0.5"
 )
 
 type RedisCluster struct {
@@ -25,6 +25,7 @@ type RedisCluster struct {
 
 	clusterInfo *clusterInfo
 	nodes       *redisNodes
+	curContext  context.Context
 }
 
 type hitKeysItem struct {
@@ -37,7 +38,7 @@ type ClusterOptions = goredis.ClusterOptions
 func NewClusterClient(ctx context.Context, opt *ClusterOptions) (*RedisCluster, error) {
 	core := goredis.NewClusterClient(opt)
 
-	obj := &RedisCluster{core, nil, nil}
+	obj := &RedisCluster{core, nil, nil, ctx}
 	if err := obj.initClustInfo(ctx); err != nil {
 		return nil, err
 	}
@@ -87,6 +88,7 @@ func (this *RedisCluster) getKeyNodesMap(keys []string) map[string]*hitKeysItem 
 			keyNodesMap[hitNodeGP.master.Id].Keys = append(keyNodesMap[hitNodeGP.master.Id].Keys, key)
 		} else {
 			log.Printf("The slot node has not been found for the key '%s'", key)
+			this.initClustInfo(this.curContext)
 		}
 	}
 

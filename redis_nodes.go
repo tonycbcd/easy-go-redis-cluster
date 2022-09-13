@@ -7,7 +7,6 @@
 package redis
 
 import (
-	"fmt"
 	"strings"
 	"sync"
 )
@@ -26,6 +25,7 @@ var (
 	oneRedisNodes *redisNodes
 )
 
+// 25837095b1df96c37ffa96493e4bf2e693630be7 172.29.16.7:6379@1122 master - 0 1663066583000 1 connected 8192-11406 14138-16383\n7bc86a205acc548ffe415dc6649f636a273d655f 172.29.18.7:6379@1122 master - 0 1663066583895 2 connected 5462-8191 11407-14137\n8f3428825dcddfd603ad07bb6219fc756efc7102 172.29.19.4:6379@1122 myself,master - 0 1663066579000 0 connected 0-5461\n
 func NewRedisNodes(info string) (*redisNodes, error) {
 	if oneRedisNodes == nil {
 		oneRedisNodes = &redisNodes{groupMap: map[string]*redisGroup{}}
@@ -35,7 +35,6 @@ func NewRedisNodes(info string) (*redisNodes, error) {
 }
 
 func (this *redisNodes) ParseAndSet(info string) error {
-	fmt.Printf("Redis Info: %#v\n", info)
 	comps := strings.Split(info, "\n")
 	newMap := map[string]*redisGroup{}
 	for _, nodeInfo := range comps {
@@ -71,9 +70,16 @@ func (this *redisNodes) FindNodeByCRC16Val(crc16Val uint16) (*redisGroup, bool) 
 	var hitNode *redisGroup
 	isFound := false
 	for _, node := range this.groupMap {
-		if crc16Val >= node.master.StartSlot && crc16Val <= node.master.EndSlot {
-			isFound = true
-			hitNode = node
+		for _, slotArea := range node.master.SlotAreas {
+			if crc16Val >= slotArea.StartSlot && crc16Val <= slotArea.EndSlot {
+				isFound = true
+				hitNode = node
+				break
+			}
+		}
+
+		if isFound {
+			break
 		}
 	}
 
