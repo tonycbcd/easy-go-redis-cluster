@@ -17,7 +17,7 @@ import (
 const (
 	MAX_COUCUR = 6
 
-	VERSION = "0.0.5"
+	VERSION = "0.0.6"
 )
 
 type RedisCluster struct {
@@ -87,7 +87,7 @@ func (this *RedisCluster) getKeyNodesMap(keys []string) map[string]*hitKeysItem 
 
 			keyNodesMap[hitNodeGP.master.Id].Keys = append(keyNodesMap[hitNodeGP.master.Id].Keys, key)
 		} else {
-			log.Printf("The slot node has not been found for the key '%s'", key)
+			log.Printf("The slot node has not been found for the key '%s', spot: %d", key, curCRC16Val)
 			this.initClustInfo(this.curContext)
 		}
 	}

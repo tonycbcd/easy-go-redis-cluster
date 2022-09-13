@@ -75,7 +75,6 @@ func (this *redisNode) parseAndSetMaster(frontInfo, lastInfo string) error {
 			this.SlotAreas = append(this.SlotAreas, &slotArea{startSlot, endSlot})
 			if this.SlotName == "" && endSlot > 0 {
 				this.SlotName = NewCRC16().GetHashBySlotArea("n", startSlot, endSlot)
-				break
 			}
 		}
 	}
