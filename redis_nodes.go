@@ -7,6 +7,7 @@
 package redis
 
 import (
+	"fmt"
 	"strings"
 	"sync"
 )
@@ -34,6 +35,7 @@ func NewRedisNodes(info string) (*redisNodes, error) {
 }
 
 func (this *redisNodes) ParseAndSet(info string) error {
+	fmt.Printf("Redis Info: %#v\n", info)
 	comps := strings.Split(info, "\n")
 	newMap := map[string]*redisGroup{}
 	for _, nodeInfo := range comps {
