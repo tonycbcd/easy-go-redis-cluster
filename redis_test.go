@@ -26,7 +26,7 @@ func newRedis() (*RedisCluster, error) {
 	rdb, err := NewClusterClient(
 		testctx,
 		&goredis.ClusterOptions{
-			Addrs:    []string{"172.17.0.1:8001"},
+			Addrs:    []string{"172.17.0.1:8001", "172.17.0.1:8002", "172.17.0.1:8003", "172.17.0.1:8004", "172.17.0.1:8005", "172.17.0.1:8006"},
 			Password: "",
 			//连接池容量及闲置连接数量
 			PoolSize:     10, // 连接池最大socket连接数，默认为4倍CPU数， 4 * runtime.NumCPU
@@ -184,21 +184,22 @@ func TestDel(t *testing.T) {
 		return
 	}
 
-	rdb.Set(testctx, "test-0", "value-0", 100*time.Second)
-	rdb.Set(testctx, "test-1", "value-1", 100*time.Second)
-	rdb.Set(testctx, "test-2", "value-2", 100*time.Second)
-
-	keys := []string{"test-0", "test-1", "test-2"}
+	keys := []string{}
+	for i := 0; i < 100; i++ {
+		curKey := fmt.Sprintf("test-%d", i)
+		keys = append(keys, curKey)
+		rdb.Set(testctx, curKey, fmt.Sprintf("value-%d", i), 100*time.Second)
+	}
 
 	res := rdb.Exists(testctx, keys...)
 	fmt.Printf("RES: %#v\n", res)
 
 	assert := assert.New(t)
-	assert.Equal(res.Val() == 3, true, "test save failed")
+	assert.Equal(res.Val() == 100, true, "test save failed")
 
 	res = rdb.Del(testctx, keys...)
 	fmt.Printf("Del Res: %#v\n", res)
-	assert.Equal(res.Val() == 3, true, "test delete failed")
+	assert.Equal(res.Val() == 100, true, "test delete failed")
 
 	res = rdb.Exists(testctx, keys...)
 	assert.Equal(res.Val() == 0, true, "test delete failed")

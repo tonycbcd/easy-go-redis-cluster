@@ -17,7 +17,7 @@ import (
 const (
 	MAX_COUCUR = 6
 
-	VERSION = "0.0.6"
+	VERSION = "0.0.7"
 )
 
 type RedisCluster struct {
@@ -126,12 +126,6 @@ func (this *RedisCluster) strArr2InfArr(keys []string) []interface{} {
 // Refactor the Del method.
 func (this *RedisCluster) Del(ctx context.Context, keys ...string) *goredis.IntCmd {
 	keyInfs := append([]interface{}{"del"}, this.strArr2InfArr(keys)...)
-	getError := func(err error) *goredis.IntCmd {
-		iCmd := goredis.NewIntCmd(ctx, keyInfs...)
-		iCmd.SetErr(err)
-		return iCmd
-	}
-
 	triedTimes := 0
 
 TryAgain:
@@ -141,18 +135,47 @@ TryAgain:
 	mapLen := len(keyNodesMap)
 	redisFactory := NewRedisClientFactory(this.Options())
 
-	var resCh chan *goredis.IntCmd = make(chan *goredis.IntCmd, mapLen)
+	type curResultModel struct {
+		Err error
+		Val int64
+	}
+	var resCh chan *curResultModel = make(chan *curResultModel, mapLen)
 
 	// To del by group.
 	for _, node := range keyNodesMap {
-		go func(resCh chan *goredis.IntCmd, curNode *hitKeysItem) {
+		go func(resCh chan *curResultModel, curNode *hitKeysItem) {
+			curRes := &curResultModel{}
 			curClient, err := redisFactory.GetRedisClient(curNode.HitNodeGP, true)
 			if err != nil {
-				resCh <- getError(err)
+				curRes.Err = err
+				resCh <- curRes
 				return
 			}
 
-			resCh <- curClient.Del(ctx, curNode.Keys...)
+			curPipe := curClient.Pipeline()
+			resArr := []*goredis.IntCmd{}
+			for _, curKey := range curNode.Keys {
+				res := curPipe.Del(ctx, curKey)
+				resArr = append(resArr, res)
+			}
+
+			_, err = curPipe.Exec(ctx)
+			if err != nil {
+				curRes.Err = err
+				resCh <- curRes
+				return
+			}
+
+			for _, one := range resArr {
+				if err = one.Err(); err != nil {
+					curRes.Err = one.Err()
+					resCh <- curRes
+					return
+				}
+				curRes.Val += one.Val()
+			}
+
+			resCh <- curRes
 		}(resCh, node)
 	}
 
@@ -162,8 +185,8 @@ TryAgain:
 	// merge the results.
 	for i := 0; i < mapLen; i++ {
 		curRes := <-resCh
-		if curVal, err := curRes.Result(); err != nil {
-			if NewRedisHelper().IsMovedError(err) {
+		if curRes.Err != nil {
+			if NewRedisHelper().IsMovedError(curRes.Err) {
 				this.initClustInfo(this.ClusterClient.Context())
 				if triedTimes < 3 {
 					triedTimes += 1
@@ -171,10 +194,10 @@ TryAgain:
 				}
 			}
 
-			result.SetErr(err)
+			result.SetErr(curRes.Err)
 			return result
 		} else {
-			totalVal += curVal
+			totalVal += curRes.Val
 		}
 	}
 
