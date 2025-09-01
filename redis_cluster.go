@@ -17,7 +17,7 @@ import (
 const (
 	MAX_COUCUR = 6
 
-	VERSION = "0.0.7"
+	VERSION = "0.0.8"
 )
 
 type RedisCluster struct {
@@ -56,7 +56,7 @@ func (this *RedisCluster) initClustInfo(ctx context.Context) error {
 		return err
 	} else {
 		clusterInfo = NewClusterInfo(ci)
-		if clusterInfo.Cluster_state != "ok" {
+		if clusterInfo.Cluster_state != "ok" && clusterInfo.Cluster_state != "loading" {
 			return errors.New("cluster is not OK")
 		}
 
